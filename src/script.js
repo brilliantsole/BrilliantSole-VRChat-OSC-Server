@@ -10,6 +10,20 @@ console.log({ client });
 
 window.client = client;
 
+// THROTTLE
+
+function throttle(func, delay) {
+  let inThrottle = false;
+
+  return function (...args) {
+    if (!inThrottle) {
+      func.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), delay);
+    }
+  };
+}
+
 // SEARCH PARAMS
 
 const url = new URL(location);
@@ -39,10 +53,43 @@ client.addEventListener("isConnected", () => {
 
 /** @type {HTMLButtonElement} */
 const resetGameRotatioButton = document.getElementById("resetGameRotation");
-resetGameRotatioButton.addEventListener("click", () => {
+resetGameRotatioButton.addEventListener("click", async () => {
   console.log("resetting game rotation");
-  fetch("/resetGameRotation");
+  const response = await fetch("/resetGameRotation");
+  // console.log("response", response);
 });
+
+/** @type {HTMLInputElement} */
+const heightOffsetInput = document.getElementById("heightOffset");
+/** @type {HTMLSpanElement} */
+const heightOffsetSpan = document.getElementById("heightOffsetSpan");
+heightOffsetInput.addEventListener("input", () => {
+  heightOffsetSpan.innerText = heightOffsetInput.value;
+  updateTrackingOffset();
+});
+
+/** @type {HTMLInputElement} */
+const widthOffsetInput = document.getElementById("widthOffset");
+/** @type {HTMLSpanElement} */
+const widthOffsetSpan = document.getElementById("widthOffsetSpan");
+widthOffsetInput.addEventListener("input", () => {
+  widthOffsetSpan.innerText = widthOffsetInput.value;
+  updateTrackingOffset();
+});
+
+async function updateTrackingOffset() {
+  const heightOffset = Number(heightOffsetInput.value);
+  const widthOffset = Number(widthOffsetInput.value);
+  console.log({ heightOffset, widthOffset });
+  const response = await fetch("/trackingOffset", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ heightOffset, widthOffset }),
+  });
+}
+updateTrackingOffset = throttle(updateTrackingOffset, 50);
 
 // CONNECTION
 

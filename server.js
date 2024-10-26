@@ -17,6 +17,7 @@ app.use(function (req, res, next) {
   next();
 });
 app.use(express.static("./"));
+app.use(express.json());
 
 const serverOptions = {
   key: fs.readFileSync("./sec/key.pem"),
@@ -54,36 +55,7 @@ oscServer.on("message", function (oscMsg, timeTag, info) {
   const address = oscMsg.address.split("/").filter(Boolean);
   const { args } = oscMsg; // [...{type, value}]
 
-  switch (address[0]) {
-    case "setSensorConfiguration":
-      /** @type {BS.SensorConfiguration} */
-      const sensorConfiguration = {};
-
-      /** @type {BS.SensorType} */
-      let sensorType;
-
-      args.forEach((arg) => {
-        switch (arg.type) {
-          case "s":
-            if (BS.SensorTypes.includes(arg.value)) {
-              sensorType = arg.value;
-            }
-            break;
-          case "f":
-          case "i":
-            sensorConfiguration[sensorType] = arg.value;
-            break;
-        }
-      });
-      devicePair.setSensorConfiguration(sensorConfiguration);
-      break;
-    case "resetGameRotation":
-      resetGameRotation();
-      break;
-    default:
-      console.log(`uncaught address ${address[0]}`);
-      break;
-  }
+  // for receiving messages
 });
 
 oscServer.open();
@@ -112,6 +84,23 @@ const latestGameRotation = {
   right: new THREE.Quaternion(),
 };
 
+const inverseRotation = {
+  left: new THREE.Quaternion(),
+  right: new THREE.Quaternion(),
+};
+const rotation = {
+  left: new THREE.Quaternion(),
+  right: new THREE.Quaternion(),
+};
+const rotationEuler = {
+  left: new THREE.Euler(0, 0, 0, "YXZ"),
+  right: new THREE.Euler(0, 0, 0, "YXZ"),
+};
+const latestRotation = {
+  left: new THREE.Quaternion(),
+  right: new THREE.Quaternion(),
+};
+
 function resetGameRotation() {
   BS.InsoleSides.forEach((side) => {
     gameRotationEuler[side].setFromQuaternion(latestGameRotation[side]);
@@ -123,9 +112,27 @@ function resetGameRotation() {
 app.get("/resetGameRotation", (req, res) => {
   console.log("resetting game rotation");
   resetGameRotation();
-  res.send({});
+  res.send();
+});
+app.post("/trackingOffset", (req, res) => {
+  const { widthOffset, heightOffset } = req.body;
+
+  if (typeof widthOffset === "number") {
+    console.log({ widthOffset });
+    trackingOffset.width = widthOffset;
+  }
+  if (typeof heightOffset === "number") {
+    console.log({ heightOffset });
+    trackingOffset.height = heightOffset;
+  }
+
+  res.send();
 });
 
+const trackingOffset = {
+  width: 0.08,
+  height: -0.6,
+};
 const trackingIndex = {
   left: 1,
   right: 2,
@@ -138,31 +145,75 @@ oscServer.on("ready", function () {
     let isRotation = false;
     switch (sensorType) {
       case "gameRotation":
-        const quaternion = gameRotation[side];
-        quaternion.copy(event.message.gameRotation);
-        quaternion.premultiply(inverseGameRotation[side]);
+        {
+          const quaternion = gameRotation[side];
+          quaternion.copy(event.message.gameRotation);
+          quaternion.premultiply(inverseGameRotation[side]);
 
-        const euler = eulers[side];
-        euler.setFromQuaternion(quaternion);
-        const [pitch, yaw, roll, order] = euler.toArray();
-        args = [-pitch, -yaw, roll].map((value) => {
-          return {
-            type: "f",
-            value: THREE.MathUtils.radToDeg(value),
-          };
-        });
+          const euler = eulers[side];
+          euler.setFromQuaternion(quaternion);
+          const [pitch, yaw, roll, order] = euler.toArray();
+          args = [-pitch, -yaw, roll].map((value) => {
+            return {
+              type: "f",
+              value: THREE.MathUtils.radToDeg(value),
+            };
+          });
+          latestGameRotation[side].copy(event.message.gameRotation);
+          isRotation = true;
+        }
+        break;
+      case "rotation":
+        {
+          const quaternion = rotation[side];
+          quaternion.copy(event.message.rotation);
+          quaternion.premultiply(inverseRotation[side]);
 
-        latestGameRotation[side].copy(event.message.gameRotation);
-        isRotation = true;
+          const euler = eulers[side];
+          euler.setFromQuaternion(quaternion);
+          const [pitch, yaw, roll, order] = euler.toArray();
+          args = [-pitch, -yaw, roll].map((value) => {
+            return {
+              type: "f",
+              value: THREE.MathUtils.radToDeg(value),
+            };
+          });
+          latestRotation[side].copy(event.message.rotation);
+          isRotation = true;
+        }
         break;
       case "linearAcceleration":
-        // FILL
+        {
+          const { x, y, z } = event.message.linearAcceleration;
+          args = [x, y, z].map((value) => {
+            return {
+              type: "f",
+              value,
+            };
+          });
+        }
         break;
       case "gyroscope":
-        // FILL
+        {
+          const { x, y, z } = event.message.gyroscope;
+          args = [x, y, z].map((value) => {
+            return {
+              type: "f",
+              value,
+            };
+          });
+        }
         break;
       case "magnetometer":
-        // FILL
+        {
+          const { x, y, z } = event.message.magnetometer;
+          args = [x, y, z].map((value) => {
+            return {
+              type: "f",
+              value,
+            };
+          });
+        }
         break;
       case "pressure":
         // FILL
@@ -175,7 +226,21 @@ oscServer.on("ready", function () {
       return;
     }
 
+    oscServer.send(
+      {
+        address: `/brilliantsole/${side}/${sensorType}`,
+        args,
+      },
+      sendAddress,
+      sendPort
+    );
+
     if (isRotation) {
+      if (sensorType == "gameRotation" && event.message.device.sensorConfiguration.rotation != 0) {
+        console.warn("not using gameRotation data to rotate foot - rotation data is already enabled");
+        return;
+      }
+
       oscServer.send(
         {
           address: `/tracking/trackers/${trackingIndex[side]}/rotation`,
@@ -188,8 +253,8 @@ oscServer.on("ready", function () {
         {
           address: `/tracking/trackers/${trackingIndex[side]}/position`,
           args: [
-            { type: "f", value: side == "left" ? -0.08 : 0.08 },
-            { type: "f", value: -0.6 }, // fix
+            { type: "f", value: side == "left" ? -trackingOffset.width : trackingOffset.width },
+            { type: "f", value: trackingOffset.height },
             { type: "f", value: 0 },
           ],
         },
