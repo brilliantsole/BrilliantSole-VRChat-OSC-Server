@@ -1,9 +1,9 @@
 import * as BS from "../node_modules/brilliantsole/build/brilliantsole.module.min.js";
 window.BS = BS;
 
-//BS.setAllConsoleLevelFlags({ log: true });
+BS.setAllConsoleLevelFlags({ log: true });
 
-BS.Device.ClearSensorConfigurationOnLeave = false;
+BS.Device.ClearSensorConfigurationOnLeave = true;
 
 const client = new BS.WebSocketClient();
 console.log({ client });
@@ -52,10 +52,10 @@ client.addEventListener("isConnected", () => {
 // OSC SERVER
 
 /** @type {HTMLButtonElement} */
-const resetGameRotatioButton = document.getElementById("resetGameRotation");
-resetGameRotatioButton.addEventListener("click", async () => {
-  console.log("resetting game rotation");
-  const response = await fetch("/resetGameRotation");
+const resetRotationButton = document.getElementById("resetRotation");
+resetRotationButton.addEventListener("click", async () => {
+  console.log("resetting rotation");
+  const response = await fetch("/resetRotation");
   // console.log("response", response);
 });
 

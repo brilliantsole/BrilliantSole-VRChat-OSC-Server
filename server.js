@@ -109,9 +109,18 @@ function resetGameRotation() {
     inverseGameRotation[side].setFromEuler(gameRotationEuler[side]);
   });
 }
-app.get("/resetGameRotation", (req, res) => {
-  console.log("resetting game rotation");
+function resetRotation() {
+  BS.InsoleSides.forEach((side) => {
+    rotationEuler[side].setFromQuaternion(latestRotation[side]);
+    rotationEuler[side].x = rotation[side].z = 0;
+    rotationEuler[side].y *= -1;
+    inverseRotation[side].setFromEuler(rotationEuler[side]);
+  });
+}
+app.get("/resetRotation", (req, res) => {
+  console.log("resetting rotation");
   resetGameRotation();
+  resetRotation();
   res.send();
 });
 app.post("/trackingOffset", (req, res) => {
@@ -216,7 +225,47 @@ oscServer.on("ready", function () {
         }
         break;
       case "pressure":
-        // FILL
+        oscServer.send(
+          {
+            address: `/tracking/trackers/${trackingIndex[side]}/pressureSum`,
+            args: [
+              {
+                type: "f",
+                value: event.message.pressure.normalizedSum,
+              },
+            ],
+          },
+          sendAddress,
+          sendPort
+        );
+
+        if (event.message.pressure.normalizedCenter && event.message.pressure.normalizedSum > 0.01) {
+          oscServer.send(
+            {
+              address: `/tracking/trackers/${trackingIndex[side]}/centerOfPressure`,
+              args: [
+                {
+                  type: "f",
+                  value: event.message.pressure.normalizedCenter.x,
+                },
+                {
+                  type: "f",
+                  value: event.message.pressure.normalizedCenter.y,
+                },
+              ],
+            },
+            sendAddress,
+            sendPort
+          );
+        }
+
+        args = [];
+        event.message.pressure.sensors.forEach((sensor) => {
+          args.push({
+            type: "f",
+            value: sensor.normalizedValue,
+          });
+        });
         break;
       default:
         break;
@@ -262,5 +311,9 @@ oscServer.on("ready", function () {
         sendPort
       );
     }
+  });
+
+  devicePair.addEventListener("pressure", (event) => {
+    // FILL - use center of pressure to move around
   });
 });
