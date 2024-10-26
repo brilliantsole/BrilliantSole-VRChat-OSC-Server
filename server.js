@@ -36,10 +36,10 @@ const webSocketServer = new BS.WebSocketServer();
 webSocketServer.clearSensorConfigurationsWhenNoClients = false;
 webSocketServer.server = wss;
 
-const sendPort = 5000;
-const receivePort = 5001;
+const sendPort = 9000;
+const receivePort = 9001;
 const localAddress = "0.0.0.0";
-const sendAddress = "0.0.0.0";
+const sendAddress = "192.168.1.201"; // replace with your IP
 
 // OSC
 const oscServer = new osc.UDPPort({
@@ -78,19 +78,7 @@ oscServer.on("message", function (oscMsg, timeTag, info) {
       devicePair.setSensorConfiguration(sensorConfiguration);
       break;
     case "resetGameRotation":
-      BS.InsoleSides.forEach((side) => {
-        gameRotationEuler[side].setFromQuaternion(latestGameRotation[side]);
-        gameRotationEuler[side].x = gameRotation[side].z = 0;
-        gameRotationEuler[side].y *= -1;
-        inverseGameRotation[side].setFromEuler(gameRotationEuler[side]);
-      });
-      break;
-    case "resetOrientation":
-      BS.InsoleSides.forEach((side) => {
-        inverseOrientations[side].copy(latestOrientation[side]);
-        inverseOrientations[side].x = inverseOrientations[side].z = 0;
-        inverseOrientations[side].y *= -1;
-      });
+      resetGameRotation();
       break;
     default:
       console.log(`uncaught address ${address[0]}`);
@@ -102,26 +90,11 @@ oscServer.open();
 
 const devicePair = BS.DevicePair.shared;
 
-const quaternions = {
-  left: new THREE.Quaternion(),
-  right: new THREE.Quaternion(),
-};
 const eulers = {
-  left: new THREE.Euler(0, 0, 0, "YXZ"),
-  right: new THREE.Euler(0, 0, 0, "YXZ"),
+  left: new THREE.Euler(0, 0, 0, "ZXY"),
+  right: new THREE.Euler(0, 0, 0, "ZXY"),
 };
-const orientations = {
-  left: new THREE.Euler(0, 0, 0, "YXZ"),
-  right: new THREE.Euler(0, 0, 0, "YXZ"),
-};
-const latestOrientation = {
-  left: new THREE.Euler(0, 0, 0, "YXZ"),
-  right: new THREE.Euler(0, 0, 0, "YXZ"),
-};
-const inverseOrientations = {
-  left: new THREE.Euler(0, 0, 0, "YXZ"),
-  right: new THREE.Euler(0, 0, 0, "YXZ"),
-};
+
 const inverseGameRotation = {
   left: new THREE.Quaternion(),
   right: new THREE.Quaternion(),
@@ -138,107 +111,61 @@ const latestGameRotation = {
   left: new THREE.Quaternion(),
   right: new THREE.Quaternion(),
 };
-const linearAcceleration = {
-  left: new THREE.Vector3(),
-  right: new THREE.Vector3(),
-};
 
-let sendQuaternionAsEuler = false;
-let includePressureSensors = true;
+function resetGameRotation() {
+  BS.InsoleSides.forEach((side) => {
+    gameRotationEuler[side].setFromQuaternion(latestGameRotation[side]);
+    gameRotationEuler[side].x = gameRotation[side].z = 0;
+    gameRotationEuler[side].y *= -1;
+    inverseGameRotation[side].setFromEuler(gameRotationEuler[side]);
+  });
+}
+app.get("/resetGameRotation", (req, res) => {
+  console.log("resetting game rotation");
+  resetGameRotation();
+  res.send({});
+});
+
+const trackingIndex = {
+  left: 1,
+  right: 2,
+};
 
 oscServer.on("ready", function () {
   devicePair.addEventListener("deviceSensorData", (event) => {
     const { side, sensorType } = event.message;
     let args;
+    let isRotation = false;
     switch (sensorType) {
-      case "orientation":
-        {
-          const orientation = orientations[side];
-          const { pitch, heading, roll } = event.message.orientation;
-          orientation.set(pitch, heading, roll);
-          orientation.y += inverseOrientations[side].y;
-
-          const { x, y, z } = orientation;
-          args = [x, y, z].map((value) => {
-            return {
-              type: "f",
-              value,
-            };
-          });
-          latestOrientation[side].set(pitch, heading, roll);
-        }
-        break;
       case "gameRotation":
         const quaternion = gameRotation[side];
         quaternion.copy(event.message.gameRotation);
         quaternion.premultiply(inverseGameRotation[side]);
 
-        if (sendQuaternionAsEuler) {
-          const euler = eulers[side];
-          euler.setFromQuaternion(quaternion);
-          const [pitch, yaw, roll, order] = euler.toArray();
-          args = [pitch, yaw, roll].map((value) => {
-            return {
-              type: "f",
-              value: THREE.MathUtils.radToDeg(value),
-            };
-          });
-        } else {
-          const { x, y, z, w } = quaternion;
-          args = [x, y, z, w].map((value) => {
-            return {
-              type: "f",
-              value,
-            };
-          });
-        }
+        const euler = eulers[side];
+        euler.setFromQuaternion(quaternion);
+        const [pitch, yaw, roll, order] = euler.toArray();
+        args = [-pitch, -yaw, roll].map((value) => {
+          return {
+            type: "f",
+            value: THREE.MathUtils.radToDeg(value),
+          };
+        });
 
         latestGameRotation[side].copy(event.message.gameRotation);
+        isRotation = true;
         break;
       case "linearAcceleration":
-        {
-          const vector = linearAcceleration[side];
-          vector.copy(event.message.linearAcceleration);
-          vector.applyQuaternion(gameRotation[side]);
-          const [x, y, z] = vector.toArray();
-          args = [x, y, z].map((value) => {
-            return {
-              type: "f",
-              value,
-            };
-          });
-        }
+        // FILL
         break;
       case "gyroscope":
-        {
-          const { x, y, z } = event.message.gyroscope;
-          args = [x, y, z].map((value) => {
-            return {
-              type: "f",
-              value,
-            };
-          });
-        }
+        // FILL
+        break;
+      case "magnetometer":
+        // FILL
         break;
       case "pressure":
-        args = [
-          {
-            type: "f",
-            value: event.message.pressure.normalizedSum,
-          },
-          {
-            type: "f",
-            value: event.message.pressure.normalizedSum > 0.01 ? event.message.pressure.normalizedCenter?.y || 0 : 0,
-          },
-        ];
-        if (includePressureSensors) {
-          event.message.pressure.sensors.forEach((sensor) => {
-            args.push({
-              type: "f",
-              value: sensor.normalizedValue,
-            });
-          });
-        }
+        // FILL
         break;
       default:
         break;
@@ -248,19 +175,27 @@ oscServer.on("ready", function () {
       return;
     }
 
-    // oscServer.send(
-    //   {
-    //     address: `/${sensorType}`,
-    //     args: [
-    //       {
-    //         type: "s",
-    //         value: side,
-    //       },
-    //       ...args,
-    //     ],
-    //   },
-    //   sendAddress,
-    //   sendPort
-    // );
+    if (isRotation) {
+      oscServer.send(
+        {
+          address: `/tracking/trackers/${trackingIndex[side]}/rotation`,
+          args,
+        },
+        sendAddress,
+        sendPort
+      );
+      oscServer.send(
+        {
+          address: `/tracking/trackers/${trackingIndex[side]}/position`,
+          args: [
+            { type: "f", value: side == "left" ? -0.08 : 0.08 },
+            { type: "f", value: -0.6 }, // fix
+            { type: "f", value: 0 },
+          ],
+        },
+        sendAddress,
+        sendPort
+      );
+    }
   });
 });

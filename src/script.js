@@ -35,6 +35,15 @@ client.addEventListener("isConnected", () => {
   }
 });
 
+// OSC SERVER
+
+/** @type {HTMLButtonElement} */
+const resetGameRotatioButton = document.getElementById("resetGameRotation");
+resetGameRotatioButton.addEventListener("click", () => {
+  console.log("resetting game rotation");
+  fetch("/resetGameRotation");
+});
+
 // CONNECTION
 
 /** @type {HTMLInputElement} */
